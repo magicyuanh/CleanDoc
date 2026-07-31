@@ -49,6 +49,31 @@ def generate_disclosure(req: DisclosureRequest) -> DualRouteResult:
         f"（项目库未检索到「{req.project}」相关背景资料，请补充 project_kb/data/ 资料）"
     )
 
+    # ---------- 溯源元数据（决策⑮b：编号 [n] ↔ 来源文件/图谱实体）----------
+    # 规范路：母体问答台本把 ctx1 按 [1..N] 编号传给 LLM，[n] 即 ctx1[n-1]
+    normative_sources = [
+        {
+            "idx": i + 1,
+            "source_type": c.metadata.get("source_type", "规范库"),
+            "file": c.metadata.get("source_file", "规范库"),
+            "relation": c.metadata.get("relation"),
+            "source_entity": c.metadata.get("source_entity"),
+            "preview": c.content[:80] + ("…" if len(c.content) > 80 else ""),
+        }
+        for i, c in enumerate(ctx1)
+    ]
+    # 项目路：project_retriever 已回填 source_file/chunk_idx
+    project_sources = [
+        {
+            "idx": i + 1,
+            "source_type": "项目资料",
+            "file": c.metadata.get("source_file", "未知文件"),
+            "chunk_idx": c.metadata.get("chunk_idx", 0),
+            "preview": c.content[:80] + ("…" if len(c.content) > 80 else ""),
+        }
+        for i, c in enumerate(ctx2)
+    ]
+
     # ---------- 融合段：最终交底 ----------
     prompt_template = _load_prompt(req.disclosure_type)
     prompt = (
@@ -70,6 +95,8 @@ def generate_disclosure(req: DisclosureRequest) -> DualRouteResult:
         project_texts=project_texts,
         project_background=background_b,
         disclosure_markdown=markdown,
+        normative_sources=normative_sources,
+        project_sources=project_sources,
     )
 
 

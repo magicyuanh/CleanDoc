@@ -30,3 +30,9 @@ class DualRouteResult:
     normative_points: str = ""                     # 规范要点 A（问答台本整理后）
     project_texts: List[str] = field(default_factory=list)     # 第二路命中的原文（来源 project_kb）
     project_background: str = ""                   # 项目背景 B（拼接）
+    # 🆕 溯源元数据（决策⑮b）：编号 [n] ↔ 命中的来源文件/图谱实体
+    # 每个元素: {"idx": n, "source_type": "规范库"/"知识图谱"/"项目资料",
+    #            "file": "test.pdf"/"示例药厂…md", "chunk_idx": 0,
+    #            "relation": "PROHIBITS"(Graph), "preview": "片段前80字"}
+    normative_sources: List[dict] = field(default_factory=list)
+    project_sources: List[dict] = field(default_factory=list)

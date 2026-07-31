@@ -51,12 +51,18 @@ class ProjectRetriever:
         q_vec = self.embed_model.encode(query, normalize_embeddings=True).tolist()
         res = self.collection.query(query_embeddings=[q_vec], n_results=recall_n)
         vector_texts = res["documents"][0] if res.get("documents") else []
+        # 🆕 溯源：chroma 命中自带 metadatas（source_file/chunk_idx），按文本建索引
+        vector_meta = {}
+        if res.get("metadatas") and res["metadatas"][0]:
+            for txt, meta in zip(vector_texts, res["metadatas"][0]):
+                vector_meta[txt] = meta or {}
 
-        # B. BM25 路
+        # B. BM25 路（chunks 自带 metadata，直接映射）
         tokens = list(jieba.cut(query))
         bm25_texts = self.bm25.get_top_n(
             tokens, [c["content"] for c in self.bm25_chunks], n=recall_n
         )
+        bm25_meta = {c["content"]: c.get("metadata", {}) for c in self.bm25_chunks}
 
         # 阶段2: RRF 文本流融合（与 HybridRetriever 一致的调用约定）
         fused_texts = self.fusion.fuse(
@@ -72,7 +78,16 @@ class ProjectRetriever:
                 src.append("Vector")
             if text in set_bm25:
                 src.append("BM25")
+            # 🆕 溯源：合并两路 metadata（BM25 优先完整，Vector 兜底），标记来源类型
+            meta = bm25_meta.get(text) or vector_meta.get(text) or {}
+            meta = dict(meta)  # 浅拷贝，避免污染 bm25_chunks 原始数据
+            meta.setdefault("source_type", "项目资料")
             candidates.append(
-                UnifiedContext(content=text, source="+".join(src) or "Text", score=0.0)
+                UnifiedContext(
+                    content=text,
+                    source="+".join(src) or "Text",
+                    score=0.0,
+                    metadata=meta,
+                )
             )
         return candidates[:top_k]

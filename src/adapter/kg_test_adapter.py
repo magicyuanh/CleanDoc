@@ -72,10 +72,37 @@ class CleanDocAdapter:
     # ------------------------------------------------------------------
     # 第一路：规范要点（KG_Test 原位检索 + 问答台本提取）
     # ------------------------------------------------------------------
+    @staticmethod
+    def _parse_file_meta(content: str) -> tuple:
+        """解析 content 开头的 'FILE: xxx' 前缀 → (文件名, 去除前缀的正文)。
+
+        母体文本流命中自带 'FILE: test.pdf' 聚合来源；Graph 流无此前缀。
+        """
+        for line in content.splitlines():
+            s = line.strip()
+            if s.startswith("FILE:"):
+                fname = s[5:].strip()
+                rest = content.replace(line, "", 1).strip()
+                return fname, rest
+        return None, content
+
     def search_normative(self, query: str, top_k: int = cc.TOP_K):
         """第一路检索：HybridRetriever.search（含图谱，默认启用+自动降级）。"""
         with contextlib.redirect_stdout(io.StringIO()):   # 决策⑰ 日志静音
-            return self.retriever.search(query, top_k=top_k)
+            ctx_list = self.retriever.search(query, top_k=top_k)
+        # 🆕 溯源：文本流解析 FILE 前缀，Graph 流透出实体关系，统一填 metadata
+        for ctx in ctx_list:
+            fname, rest = self._parse_file_meta(ctx.content)
+            if fname:
+                ctx.metadata.setdefault("source_file", fname)
+                ctx.metadata.setdefault("source_type", "规范库")
+                ctx.content = rest  # 去掉 FILE 前缀，正文干净
+            elif ctx.source == "Graph":
+                ctx.metadata.setdefault("source_type", "知识图谱")
+            else:
+                ctx.metadata.setdefault("source_file", "规范库")
+                ctx.metadata.setdefault("source_type", "规范库")
+        return ctx_list
 
     def extract_normative_points(self, query: str, ctx_list) -> str:
         """第一路生成：用 KG_Test 问答台本把上下文整理成「规范要点 A」文本。"""
