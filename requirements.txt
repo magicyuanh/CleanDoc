@@ -1,0 +1,14 @@
+# CleanDoc 依赖清单（记录用，决策⑫）
+# 方案 A：跑在 kg_test-archrag-app:latest 镜像内，依赖 = 镜像冻结版，零补装。
+# 本文件从镜像 pip freeze 记录，作可复现依据；实际运行无需 pip install。
+
+# 关键冻结版本（镜像内实测）：
+# chromadb==1.4.0
+# sentence-transformers==3.3.1
+# rank_bm25
+# jieba==0.42.1
+# torch==2.5.1+cu121
+# transformers==4.46.3
+# streamlit / nest_asyncio / python-dotenv（镜像内已含）
+
+# 若脱离容器跑（方案 B' 异地 Docker 同构，非本地 venv），依赖随镜像整体迁移，无需此清单。

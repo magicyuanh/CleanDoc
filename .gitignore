@@ -1,0 +1,25 @@
+# Secrets — 严禁提交
+.env
+
+# 运行时生成数据（project_kb 向量库/索引）
+project_kb/*.pkl
+project_kb/*.sqlite3
+project_kb/*.db
+project_kb/[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*/
+
+# 母体 chroma_db 可写副本（adapter 运行时镜像，不提交）
+chroma_db/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 监控日志
+monitor/
+*.log
+
+# IDE
+.idea/
+.vscode/
