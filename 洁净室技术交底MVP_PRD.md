@@ -2,7 +2,7 @@
 
 > 目标：基于你已有的 ArchRAG（HVAC-KG-RAG，位于 `D:\KG_Test`）混合检索系统，在其之上**独立衍生**一个「洁净室施工技术交底自动生成」MVP，代号 **CleanDoc**，作为简历中「施工文书自动生成」的真实落地案例。
 > 核心原则：**CleanDoc 是独立项目，零拷贝、零修改 `D:\KG_Test`**——所有检索/生成/模型/知识库资产均原位引用（`import`），不改 KG_Test 一行代码。
-> 状态：**v2 拍板版（2026-07-31）**。6 项决策 + 2 项🔴修正已拍板并入文（见 §10 追加）；仅 PRD 修订，未写程序代码。
+> 状态：**MVP 已跑通（2026-07-31 晚）**。23 项决策 + 2🔴 + 4🟡 已拍板并入文；引用溯源（⑮b/⑮c）追加实现；冒烟 5 项全绿，程序已运行于 `cleandoc` 容器（localhost:8502）。见 §10.9 / §10.10。
 
 ---
 
@@ -58,8 +58,14 @@
 │
 └─ 融合生成（CleanDoc，最终交底）
      prompt = 技术交底模板系统提示词 + "规范要点:" + A + "项目背景:" + B + 表单参数
-     → CleanDoc 调 KG_Test 底层 LLMClient.call_llm(prompt, temperature≈0.2)   # 绕过写死的 ResponseGenerator
+     → CleanDoc 调 KG_Test 底层 LLMClient.call_llm(prompt, temperature≈0.3)   # 绕过写死的 ResponseGenerator
      → 结构化 Markdown 交底 + 证据链面板   [CleanDoc app.py 渲染]
+
+溯源（决策⑮b，2026-07-31 追加）：
+     [n] 编号映射：母体 ResponseGenerator 按 [i+1] 编号喂 ctx → 交底 [n] ≡ ctx₁[n-1]（含 Vector/BM25/Graph）
+     第一路：adapter 解析 FILE: 前缀 + Graph 实体关系 → metadata（规范路溯源到「文件级」）
+     第二路：project_retriever 回填 source_file/chunk_idx → metadata（项目路溯源到「文件名+段落」）
+     UI：正文 [n] 锚点链接跳转溯源表；下方双段溯源表（规范库/图谱 + 项目资料）
 ```
 
 ### 4.2 CleanDoc 分层文件结构（D:\clean doc）
@@ -346,6 +352,13 @@ from core.models import UnifiedContext       # 检索↔生成的数据契约
   - 融合段：拼「交底模板 + A + B + 表单参数」= 整段 prompt → `LLMClient.call_llm` → 最终结构化交底 → UI。
 - 关键边界：KG_Test 的 chroma/bm25/neo4j = 规范数据，CleanDoc 永远只读不写；写只发生在 `D:\clean doc\project_kb`。两套库物理隔离、互不污染。
 
+**D. 引用溯源实现（决策⑮b，2026-07-31 追加，零改母体）**
+- 编号映射原理（可靠）：母体 `generate_async`（`rag/generator.py:51-59`）把 `context_list` 按 `[i+1] (source) content` 编号传入 LLM → **交底正文 `[n]` ≡ `ctx₁[n-1]`**（Vector/BM25/Graph 混排后统一编号）。溯源表按此一一映射。
+- 第一路 metadata（`kg_test_adapter.search_normative`）：解析命中 content 的 `FILE: xxx` 前缀 → `metadata.source_file`（并剥净正文噪声）；Graph 流透出 `source_entity/relation`。局限：母体规范库只存聚合文件名 `test.pdf`，规范路溯源到**文件级**（母体数据限制，MVP 接受）。
+- 第二路 metadata（`project_retriever.search`）：chroma 查询取 `metadatas`、BM25 用 chunks 自带 metadata（`build_index` 已写入 `source_file`/`chunk_idx`），按文本映射回填 `UnifiedContext.metadata` → 项目路溯源到**文件名+段落**（符合拍板①）。
+- 数据汇入：`DualRouteResult` 增 `normative_sources` / `project_sources`（字段：idx/source_type/file/chunk_idx/relation/preview），`disclosure_service` 构建。
+- UI（`app.py`）：`_linkify_refs()` 把正文 `[n]` → `<a href="#src-n">` 锚点链接；`_source_table()` 渲染双段溯源表（📘规范库/🕸️知识图谱 + 📄项目资料），表行带 `id="src-n"` 锚点，点击正文编号跳转对应行（决策⑮b：两者都要）。
+
 ### 4.8 模型复用机制（零下载、零额外模型调用）
 - **证据（`D:\KG_Test\config.py`）**：
   - 第 51–53 行：`base_dir = os.getenv("ARCHRAG_BASE_DIR", os.path.dirname(os.path.abspath(__file__)))` → `__file__` 为 `D:\KG_Test\config.py`，故 `base_dir = D:\KG_Test`。
@@ -552,3 +565,16 @@ docker run -d --name cleandoc --gpus all -p 8502:8501 \
 4. 子 B 产出补：**500 字符切片**（⑨）。
 5. 阶段 6 收口：**自评 4 类**（围护/净化空调/工艺管道/电气）+ 标「自评」（⑬）；**录屏脚本跑通后写**（㉓）。
 6. requirements.txt 注释改「记录清单（镜像 freeze）」（⑫）。
+
+## 10.9 决策记录 5（2026-07-31 晚，引用溯源拍板并入文）
+| # | 决策 | 拍板 | 落点 |
+|---|---|---|---|
+| ⑮b | 引用溯源粒度 | **项目路「文件名+段落」**（`source_file`+`chunk_idx`）；规范路「文件级」（母体限制，接受） | §4.7D / overview |
+| ⑮c | 溯源 UI 形态 | **两者都要**：正文 `[n]` 可点击（锚点跳转）+ 正文下方溯源表 | app.py `_linkify_refs` / `_source_table` |
+
+## 10.10 冒烟实施记录（2026-07-31 晚，MVP 跑通）
+- **环境/启动踩坑 3 连**：① 镜像名 `kg_test-archrag-app:latest`（非 archrag-ai）；② 代码在 `D:\clean doc`（带空格），挂载 `-v "/d/clean doc":/clean_doc:rw`；③ 环境变量必须 6 个全注入（KG_TEST_ROOT / CLEANDOC_ROOT / DEEPSEEK_API_KEY / NEO4J_URI=bolt://host.docker.internal:7687 / NEO4J_USER / NEO4J_PASSWORD），`.env` 里 `NEO4J_URI=localhost` 在容器内须改写为 `host.docker.internal`。
+- **代码修复 3 处**：① `DualRouteResult` dataclass 无默认值字段必须排最前（否则 TypeError）；② `ResponseGenerator.__init__(self, config)` 只收 config（内部自建 MonitoringManager），adapter 原传 `(cfg, monitor)` 报错；③ **最关键**：母体 `/app` 是 `:ro`，`PersistentClient` 打开 `/app/chroma_db` 写元数据 → `readonly database` → Vector 路静默降级；修法 = adapter 覆写 `cfg.chroma_db_path` → `/clean_doc/chroma_db`（可写副本，`_mirror_chroma_db()` copytree 母体库）。
+- **冒烟结果全绿**：Neo4j 478 节点/417 关系；build_index 26 切片（500 字符）；双路各 8 条命中；DeepSeek 融合段 0.24~0.30s；交底 2335~2526 字六章节完整，参数冲突显式提示「以设计图纸为准，需项目总工核定」。首轮 120s（模型懒加载），二次 93s。
+- 首个 git commit `c12be20`；溯源功能 commit `d6ce2f7`；overview 补章节 commit `88e04ae`。
+- 演示产物：`D:\clean doc\output\示例药厂洁净厂房_净化空调_技术交底.md`（2335 字，六章节 + 引用标注）。
