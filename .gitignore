@@ -10,6 +10,9 @@ project_kb/[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*-[0-9a-f]*/
 # 母体 chroma_db 可写副本（adapter 运行时镜像，不提交）
 chroma_db/
 
+# 演示产物（交底成品）
+output/
+
 # Python
 __pycache__/
 *.py[cod]

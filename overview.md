@@ -71,13 +71,43 @@ docker run -d --name cleandoc --gpus all -p 8502:8501 \
 D:\clean doc\
 ├── 洁净室技术交底MVP_PRD.md   # PRD v2（23 决策）
 ├── clean_config.py            # CleanDoc 自身配置（环境变量解析，不叫 config 防撞名）
-├── app.py                     # Streamlit 入口（表单+证据链+下载）
+├── app.py                     # Streamlit 入口（表单+证据链+溯源+下载）
 ├── src/
-│   ├── adapter/kg_test_adapter.py   # 唯一 import KG_Test 的层（monitor/chroma 覆写）
+│   ├── adapter/kg_test_adapter.py   # 唯一 import KG_Test 的层（monitor/chroma 覆写 + FILE 解析）
 │   ├── domain/                      # schema / project_types / 两套提示词
-│   ├── project_kb/                  # build_index(500切片) + project_retriever(向量+BM25+RRF)
-│   └── service/disclosure_service.py# 双路编排 + list_projects
+│   ├── project_kb/                  # build_index(500切片) + project_retriever(向量+BM25+RRF+溯源)
+│   └── service/disclosure_service.py# 双路编排 + 溯源汇入 + list_projects
 ├── project_kb/data/           # 示例资料 2 份（真实资料后补）
-├── output/                    # 首次演示产物（已生成 1 份）
+├── scripts/                   # trace_verify.py + e2e_trace_verify.py（溯源回归）
+├── output/                    # 演示产物（gitignore）
 └── README.md / requirements.txt / .gitignore
 ```
+
+## 七、引用溯源功能（2026-07-31 追加）
+
+### 需求
+交底正文的 `[n]` 引用标记无可追溯来源 → 要求"可溯源到出处/链接"。
+
+### 拍板（用户）
+1. 项目路溯源到「文件名+段落」；2. UI 正文内 `[n]` 可点击 + 正文下方溯源表，两者都要。
+
+### 实现（零改母体）
+| 文件 | 改动 |
+|---|---|
+| `project_retriever.py` | chroma 取 metadatas、BM25 用自带 metadata，按文本映射回填 `UnifiedContext.metadata={source_file, chunk_idx, source_type}` |
+| `kg_test_adapter.py` | `search_normative` 解析 content `FILE:` 前缀→metadata（正文剥净噪声）；Graph 流透出实体关系 |
+| `disclosure_schema.py` | `DualRouteResult` 增 `normative_sources` / `project_sources`（idx/type/file/chunk/relation/preview） |
+| `disclosure_service.py` | 两侧 metadata 汇入溯源字段 |
+| `app.py` | `_linkify_refs()` 把正文 `[n]`→`<a href="#src-n">` 锚点链接；`_source_table()` 渲染双段溯源表（规范库/图谱 + 项目资料），表行带 `id="src-n"` 锚点 |
+
+### 编号映射原理（可靠）
+母体 `generator.generate_async` 把 ctx 列表按 `[i+1] (source) content` 编号传入 LLM（`/app/rag/generator.py:51-59`）→ **交底 `[n]` = ctx1[n-1]**（含 Vector/BM25/Graph 混排）。溯源表按此映射。
+
+### 验证
+- 单测：规范路 5 条 `file=test.pdf` + 无 FILE 前缀；项目路 5 条 `文件名.md + chunk` 精确回填 ✅
+- 端到端：8+8 溯源条目、正文 28 处引用链接化、编号 `[1..5]`、锚点 id 正确 ✅
+- 容器 health 200，Streamlit 热加载新代码 ✅
+
+### 局限
+- 规范库（KG_Test）侧母体只存聚合文件名 `test.pdf`，溯源到**文件级**（母体数据限制，MVP 接受）
+- 项目库侧可到**文件+段落**（符合拍板①）
